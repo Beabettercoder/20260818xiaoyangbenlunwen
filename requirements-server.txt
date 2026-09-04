@@ -1,0 +1,12 @@
+# Install torch and torchvision separately with wheels matching the server CUDA driver.
+# Follow the official PyTorch selector for the server's CUDA version.
+numpy
+Pillow
+tqdm
+tensorboardX
+h5py
+scikit-learn
+matplotlib
+ftfy
+regex
+git+https://github.com/openai/CLIP.git
