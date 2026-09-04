@@ -54,3 +54,14 @@ warmup checkpoint：
 - 检查：语法检查通过，`tests.test_semantic_drift_control` 共 11 项测试通过。
 - 覆盖：正确/打乱文本分支、mu/sigma 独立权重、stop-gradient、lambda 更新、sigma 下界、风格变量梯度和关闭开关。
 - 结论：实现具备进入 smoke test 的条件；单元测试不能证明分类精度有效。
+
+## SUBMISSION-QUEUE-20260904
+
+- 状态：planned。
+- 当前代码事实：三个渐进攻击阶段仍由固定全局分类器 CE 产生任务梯度，尚无 `global_ce / episodic_ce` 互斥开关。
+- 当前候选命名：`M-G = global CE + semantic anchor + budget + feedback`，不得误记为 M4。
+- 执行设备：单张物理 GPU 4，所有实验串行。
+- 执行入口：`scripts/run_submission_source_only.sh`。
+- 执行顺序：M-G 5-shot → M-G 1-shot → 同提交补齐 B0 1-shot。
+- 协议：只用 NWPU 训练；每个 shot 训练一次，并用同一个 checkpoint 测试 AID、UCM、EuroSAT。
+- 80/20 目标无标签旧运行继续标记为 invalid：默认 `keep_ratio=0`；全放开后 `pseudo_conf≈0.0241`、`mean_entropy≈0.9955`，伪标签近似随机。

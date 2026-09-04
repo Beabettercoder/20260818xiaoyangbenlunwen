@@ -19,19 +19,22 @@
 
 ## P0：投稿前必须完成
 
-### B0：冻结代码后的 source-only 基线
+### B0：冻结代码后的 source-only StyleAdv-global 基线
 
 - 1-shot：AID、UCM、EuroSAT。
 - 5-shot：AID、UCM、EuroSAT。
 - 当前 5-shot 历史结果只能作为参考，最终表应在冻结代码上复跑。
+- 关闭新增文本机制，但保留原 StyleAdv 渐进风格攻击；当前攻击内层损失是固定全局分类头 CE，实验名记为 `styleadv_global`。
 
-### M4：完整方法
+### M-G：当前代码可运行的完整语义控制版本
 
-配置：episodic CE + 训练后的语义锚 + 固定预算风险分配 + 漂移反馈。
+配置：global CE + 训练后的语义锚 + 固定预算风险分配 + 漂移反馈。
 
 - 先做 1 个 epoch 的 smoke test，验证梯度、checkpoint 和评估链路。
 - 然后按 B0 的全部 1-shot/5-shot 设置运行。
-- 时间允许时，B0 与 M4 各使用 3 个训练随机种子；1000 个测试 episode 不能替代多个训练种子。
+- 时间允许时，B0 与 M-G 各使用 3 个训练随机种子；1000 个测试 episode 不能替代多个训练种子。
+
+当前仓库尚未实现 `global_ce / episodic_ce` 攻击内层互斥开关，因此 M-G 只能先回答“新文本机制在不改变 StyleAdv 攻击损失时是否有效”。在 episodic 分支实现并通过梯度测试前，不得把 M-G 写成 episodic 攻击版本。
 
 ### 文本因果对照
 
@@ -42,6 +45,39 @@
 - T2：随机打乱类别文本映射。
 
 如果 T1 不能稳定优于 T0 和 T2，论文不能声称提升来自文本语义。
+
+## 单卡 GPU 4 的立即执行顺序
+
+只有物理 GPU 4 可用，所有任务必须串行：
+
+1. M-G 5-shot smoke test。
+2. M-G 5-shot 正式训练与三个目标域测试。
+3. M-G 1-shot 正式训练与三个目标域测试。
+4. 在相同 Git 提交上补齐 B0 1-shot；历史 B0 5-shot暂作参照，最终表再复跑。
+5. 若 M-G 没有稳定优于 B0，先检查语义漂移、预算利用率和 `sigma_clamp_rate`，不扩大实验矩阵。
+6. 主结果成立后，再实现 episodic CE、shuffled text 和逐模块消融。
+
+统一入口：
+
+```bash
+export PATH=/mnt/sdc/wzj/envs/sganet/bin:$PATH
+cd /mnt/sdc/wzj/SGA-Net
+
+# 只核对命令，不启动训练
+DRY_RUN=1 bash scripts/run_submission_source_only.sh \
+  /mnt/sdc/wzj/datasets semantic_global "5 1" 4
+
+# 真实 smoke test：1 epoch、1 个训练 episode、2 个测试 episode
+EPOCHS=1 TRAIN_EPISODES=1 VAL_EPISODES=2 TEST_EPISODES=2 \
+RUN_TAG=smoke_gpu4 bash scripts/run_submission_source_only.sh \
+  /mnt/sdc/wzj/datasets semantic_global 5 4
+
+# 先 5-shot，自动测完三个目标域，再运行 1-shot
+bash scripts/run_submission_source_only.sh \
+  /mnt/sdc/wzj/datasets semantic_global "5 1" 4
+```
+
+脚本不传 `target_dataset`，目标 SSL 权重固定为 0。每个 shot 只训练一次 NWPU，然后使用同一个 checkpoint 依次测试 AID、UCM、EuroSAT。
 
 ## P1：模块消融
 
@@ -55,7 +91,7 @@
 | A3 | A2 + 固定预算风险分配 | 风险预算增量 |
 | A4 | A3 + 漂移反馈 | 反馈增量/完整方法 |
 
-时间紧张时，消融可先用 1 个训练种子，但至少覆盖三个目标域的 1-shot；B0 与 A4 优先完成多训练种子。
+时间紧张时，消融可先用 1 个训练种子，但至少覆盖三个目标域的 1-shot；B0 与 A4 优先完成多训练种子。A1-A4 当前仍是待实现队列，不得用 M-G 冒充。
 
 ## 机制诊断（随正式实验记录）
 
