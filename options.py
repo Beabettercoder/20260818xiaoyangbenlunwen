@@ -76,6 +76,12 @@ def _add_common_args(parser):
   parser.add_argument('--require_warmup', type=int, default=0, help='Fail if warmup checkpoint is missing')
   parser.add_argument('--target_unlabeled_batch_size', default=64, type=int, help='Batch size for target unlabeled training branch')
   parser.add_argument('--target_ssl_weight', default=1.0, type=float, help='Weight of the target unlabeled consistency loss')
+  parser.add_argument(
+    '--target_ssl_mode',
+    default='legacy_pseudo',
+    choices=['legacy_pseudo', 'feature_consistency'],
+    help='Target SSL objective: legacy source-class pseudo labels or label-free weak/strong feature consistency',
+  )
   parser.add_argument('--target_ssl_temperature', default=0.5, type=float, help='Temperature used to sharpen target pseudo-labels')
   parser.add_argument('--target_ssl_ramp_epochs', default=60, type=int, help='Ramp-up epochs for target unlabeled consistency weight')
   parser.add_argument('--target_ssl_confidence_threshold', default=0.80, type=float, help='Confidence threshold for keeping target pseudo-labels')

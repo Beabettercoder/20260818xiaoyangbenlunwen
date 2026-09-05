@@ -313,6 +313,7 @@ if __name__=='__main__':
     print(f"[Config] text_calibration_weight={getattr(params, 'text_calibration_weight', 0.0)}")
     print(
       "[Config] target_ssl="
+      f"mode={getattr(params, 'target_ssl_mode', 'legacy_pseudo')}, "
       f"thr={getattr(params, 'target_ssl_confidence_threshold', 0.80)}, "
       f"max_entropy={getattr(params, 'target_ssl_max_entropy', 0.75)}, "
       f"view_thr={getattr(params, 'target_ssl_view_threshold', 0.65)}, "
@@ -539,6 +540,7 @@ if __name__=='__main__':
     semantic_lambda_max=getattr(params, 'semantic_lambda_max', 10.0),
     semantic_sigma_min=getattr(params, 'semantic_sigma_min', 1e-6),
     target_ssl_temperature=getattr(params, 'target_ssl_temperature', 0.5),
+    target_ssl_mode=getattr(params, 'target_ssl_mode', 'legacy_pseudo'),
     target_ssl_confidence_threshold=getattr(params, 'target_ssl_confidence_threshold', 0.80),
     target_ssl_max_entropy=getattr(params, 'target_ssl_max_entropy', 0.75),
     target_ssl_view_threshold=getattr(params, 'target_ssl_view_threshold', 0.65),

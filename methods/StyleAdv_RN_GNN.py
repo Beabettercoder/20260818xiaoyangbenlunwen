@@ -71,6 +71,7 @@ class StyleAdvGNN(MetaTemplate):
     semantic_lambda_max: float = 10.0,
     semantic_sigma_min: float = 1e-6,
     target_ssl_temperature: float = 0.5,
+    target_ssl_mode: str = "legacy_pseudo",
     target_ssl_confidence_threshold: float = 0.80,
     target_ssl_max_entropy: float = 0.75,
     target_ssl_view_threshold: float = 0.65,
@@ -190,6 +191,9 @@ class StyleAdvGNN(MetaTemplate):
     self.last_text_guidance_weight = 1.0
     self.last_text_prompt_agreement = 1.0
     self.target_ssl_temperature = float(target_ssl_temperature)
+    if target_ssl_mode not in {"legacy_pseudo", "feature_consistency"}:
+      raise ValueError(f"Unsupported target_ssl_mode: {target_ssl_mode}")
+    self.target_ssl_mode = target_ssl_mode
     self.target_ssl_confidence_threshold = float(target_ssl_confidence_threshold)
     self.target_ssl_max_entropy = float(target_ssl_max_entropy)
     self.target_ssl_view_threshold = float(target_ssl_view_threshold)
@@ -285,6 +289,7 @@ class StyleAdvGNN(MetaTemplate):
         print(f"  - [Step1.1] text_calibration_weight: {self.text_calibration_weight}")
         print(
           "  - [TargetSSL] "
+          f"mode={self.target_ssl_mode}, "
           f"thr={self.target_ssl_confidence_threshold}, "
           f"max_entropy={self.target_ssl_max_entropy}, "
           f"view_thr={self.target_ssl_view_threshold}, "
@@ -1952,6 +1957,12 @@ class StyleAdvGNN(MetaTemplate):
 
   def adjust_target_ssl_weight(self, base_weight, target_stats):
     """Scale target SSL weight based on how many reliable samples survived filtering."""
+    if self.target_ssl_mode == "feature_consistency":
+      self.last_target_ssl_weight_factor = 1.0
+      self.last_target_ssl_keep_ratio = float(target_stats.get("selected_ratio", 1.0))
+      self.last_target_ssl_selected_confidence = 0.0
+      return float(base_weight), 1.0
+
     selected_ratio = float(target_stats.get("selected_ratio", 0.0))
     selected_conf = float(target_stats.get("selected_confidence", target_stats.get("pseudo_confidence", 0.0)))
     threshold = min(max(self.target_ssl_confidence_threshold, 0.0), 1.0)
@@ -1977,6 +1988,27 @@ class StyleAdvGNN(MetaTemplate):
     temperature = max(float(temperature), 1e-6)
     weak_features = self.forward_global_features(x_weak)
     strong_features = self.forward_global_features(x_strong)
+
+    if self.target_ssl_mode == "feature_consistency":
+      weak_norm = F.normalize(weak_features.detach(), dim=1)
+      strong_norm = F.normalize(strong_features, dim=1)
+      view_agreement = (weak_norm * strong_norm).sum(dim=1)
+      feature_loss = (1.0 - view_agreement).mean()
+      zero = feature_loss.detach().new_zeros(())
+      stats = {
+        "pseudo_confidence": 0.0,
+        "mean_entropy": 0.0,
+        "selected_ratio": 1.0,
+        "selected_confidence": 0.0,
+        "selected_entropy": 0.0,
+        "view_agreement": float(view_agreement.detach().mean().cpu()),
+        "selected_view_agreement": float(view_agreement.detach().mean().cpu()),
+        "prob_loss": float(zero.cpu()),
+        "feature_loss": float(feature_loss.detach().cpu()),
+        "prototype_loss": float(zero.cpu()),
+      }
+      return feature_loss, stats
+
     weak_logits = self.classifier.forward(weak_features)
     strong_logits = self.classifier.forward(strong_features)
     strong_log_probs = F.log_softmax(strong_logits, dim=1)
