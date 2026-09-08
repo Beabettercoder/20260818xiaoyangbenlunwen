@@ -580,7 +580,6 @@ class StyleAdvGNN(MetaTemplate):
       return max(float(self.text_confidence_floor), min(1.0, weight))
     return float(1.0 / (1.0 + self.text_weight_k * self.n_support))
 
-  @torch.no_grad()
   def _compute_text_guidance(self, global_y: torch.Tensor, samples_per_class: int):
     """
     璁＄畻鏂囨湰寮曞淇℃伅 (涓嶅弬涓庢搴﹁绠?
@@ -645,7 +644,8 @@ class StyleAdvGNN(MetaTemplate):
         class_embeddings, z_text = self.text_prompt_encoder.encode_class_prompts(prompts)
       
       # 3. 鐢熸垚椋庢牸鎻愮ず
-      style_prompt = self.style_prompt_generator(z_text.to(self.device))
+      # Freeze text embeddings, not the trainable conditioning heads.
+      style_prompt = self.style_prompt_generator(z_text.detach().to(self.device))
       
       # ========== [娑堣瀺瀹為獙] 鍙厤缃殑鏂囨湰寮曞鏉冮噸 ==========
       text_weight = self._resolve_text_guidance_weight(prompt_stats)
@@ -1599,9 +1599,9 @@ class StyleAdvGNN(MetaTemplate):
     if epsilon_scales is not None:
       # epsilon_scales: [3], range [0.5, 1.5]
       scaled_epsilon_list = [
-        epsilon_list[0] * epsilon_scales[0].item(),
-        epsilon_list[1] * epsilon_scales[1].item(),
-        epsilon_list[2] * epsilon_scales[2].item(),
+        epsilon_list[0] * epsilon_scales[0],
+        epsilon_list[1] * epsilon_scales[1],
+        epsilon_list[2] * epsilon_scales[2],
       ]
     else:
       scaled_epsilon_list = epsilon_list
@@ -1609,6 +1609,9 @@ class StyleAdvGNN(MetaTemplate):
     # forward and set the grad = True
     blocklist = 'block123'
     use_progressive = (attack_mode == 'progressive')
+    # First-order inner attacks must not consume the outer scale-head graph.
+    def inner_stat(value):
+      return value.detach() if torch.is_tensor(value) else value
     
     if('1' in blocklist and scaled_epsilon_list[0] != 0 ):
       # forward block1
@@ -1691,9 +1694,13 @@ class StyleAdvGNN(MetaTemplate):
         # Preserve the original StyleAdv random-start FGSM branch exactly.
         self.feature.zero_grad()
         self.classifier.zero_grad()
-        ori_loss.backward()
-        grad_ori_style_mean_block1 = ori_style_mean_block1.grad.detach()
-        grad_ori_style_std_block1 = ori_style_std_block1.grad.detach()
+        style_grads = torch.autograd.grad(
+          ori_loss, (ori_style_mean_block1, ori_style_std_block1),
+          create_graph=False,
+        )
+        grad_ori_style_mean_block1, grad_ori_style_std_block1 = (
+          grad.detach() for grad in style_grads
+        )
         if gradient_gates is not None and len(gradient_gates) > 0:
           gate = gradient_gates[0].to(device)
           grad_ori_style_mean_block1 = grad_ori_style_mean_block1 * gate
@@ -1718,7 +1725,7 @@ class StyleAdvGNN(MetaTemplate):
           adv_style_std_block1,
         )
       else:
-        x_adv_block1 = changeNewAdvStyle(x_ori_block1, adv_style_mean_block1, adv_style_std_block1, p_thred=0)
+        x_adv_block1 = changeNewAdvStyle(x_ori_block1, inner_stat(adv_style_mean_block1), inner_stat(adv_style_std_block1), p_thred=0)
       # forward block2
       if use_progressive:
         x_ori_block2_base = self.feature.forward_block2(x_adv_block1)
@@ -1797,9 +1804,13 @@ class StyleAdvGNN(MetaTemplate):
       else:
         self.feature.zero_grad()
         self.classifier.zero_grad()
-        ori_loss.backward()
-        grad_ori_style_mean_block2 = ori_style_mean_block2.grad.detach()
-        grad_ori_style_std_block2 = ori_style_std_block2.grad.detach()
+        style_grads = torch.autograd.grad(
+          ori_loss, (ori_style_mean_block2, ori_style_std_block2),
+          create_graph=False,
+        )
+        grad_ori_style_mean_block2, grad_ori_style_std_block2 = (
+          grad.detach() for grad in style_grads
+        )
         if gradient_gates is not None and len(gradient_gates) > 1:
           gate = gradient_gates[1].to(device)
           grad_ori_style_mean_block2 = grad_ori_style_mean_block2 * gate
@@ -1823,7 +1834,7 @@ class StyleAdvGNN(MetaTemplate):
           adv_style_std_block1,
         )
       else:
-        x_adv_block1 = changeNewAdvStyle(x_ori_block1, adv_style_mean_block1, adv_style_std_block1, p_thred=0)
+        x_adv_block1 = changeNewAdvStyle(x_ori_block1, inner_stat(adv_style_mean_block1), inner_stat(adv_style_std_block1), p_thred=0)
       if use_progressive:
         x_ori_block2_base = self.feature.forward_block2(x_adv_block1)
       else:
@@ -1836,7 +1847,7 @@ class StyleAdvGNN(MetaTemplate):
           adv_style_std_block2,
         )
       else:
-        x_adv_block2 = changeNewAdvStyle(x_ori_block2, adv_style_mean_block2, adv_style_std_block2, p_thred=0)
+        x_adv_block2 = changeNewAdvStyle(x_ori_block2, inner_stat(adv_style_mean_block2), inner_stat(adv_style_std_block2), p_thred=0)
       if use_progressive:
         x_ori_block3_base = self.feature.forward_block3(x_adv_block2)
       else:
@@ -1912,9 +1923,13 @@ class StyleAdvGNN(MetaTemplate):
       else:
         self.feature.zero_grad()
         self.classifier.zero_grad()
-        ori_loss.backward()
-        grad_ori_style_mean_block3 = ori_style_mean_block3.grad.detach()
-        grad_ori_style_std_block3 = ori_style_std_block3.grad.detach()
+        style_grads = torch.autograd.grad(
+          ori_loss, (ori_style_mean_block3, ori_style_std_block3),
+          create_graph=False,
+        )
+        grad_ori_style_mean_block3, grad_ori_style_std_block3 = (
+          grad.detach() for grad in style_grads
+        )
         if gradient_gates is not None and len(gradient_gates) > 2:
           gate = gradient_gates[2].to(device)
           grad_ori_style_mean_block3 = grad_ori_style_mean_block3 * gate
@@ -2247,7 +2262,8 @@ class StyleAdvGNN(MetaTemplate):
         x_adv_block1, adv_style_mean_block1, adv_style_std_block1, p_thred=P_THRED
       )
     if self.style_attack_mode == 'independent':
-      x_adv_block2_input = self.feature.forward_block2(x_adv_block1)
+      # Independent inner gradients still require all attacks in the outer path.
+      x_adv_block2_input = self.feature.forward_block2(x_adv_block1_newStyle)
       if self.semantic_drift_control_enabled:
         x_adv_block2_newStyle = self._apply_deterministic_style(
           x_adv_block2_input, adv_style_mean_block2, adv_style_std_block2
@@ -2256,7 +2272,7 @@ class StyleAdvGNN(MetaTemplate):
         x_adv_block2_newStyle = changeNewAdvStyle(
           x_adv_block2_input, adv_style_mean_block2, adv_style_std_block2, p_thred=P_THRED
         )
-      x_adv_block3_input = self.feature.forward_block3(x_adv_block2_input)
+      x_adv_block3_input = self.feature.forward_block3(x_adv_block2_newStyle)
       if self.semantic_drift_control_enabled:
         x_adv_block3_newStyle = self._apply_deterministic_style(
           x_adv_block3_input, adv_style_mean_block3, adv_style_std_block3

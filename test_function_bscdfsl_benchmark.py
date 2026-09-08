@@ -193,6 +193,14 @@ def _evaluate_single_target(params, target_dataset, acc_file, save_epoch):
   metric_model.load_state_dict(filtered, strict=False)
 
   print("  evaluate")
+  # Reset after model construction/extraction so each arm samples identical episodes.
+  eval_seed = getattr(params, "eval_seed", None)
+  if eval_seed is not None:
+    random.seed(eval_seed)
+    np.random.seed(eval_seed)
+    torch.manual_seed(eval_seed)
+    if torch.cuda.is_available():
+      torch.cuda.manual_seed_all(eval_seed)
   for _ in progress_range(range(iter_num), desc=f"{target_dataset} eval"):
     acc = feature_evaluation(
       cl_data_file,

@@ -159,6 +159,7 @@ def parse_args(script):
     parser.add_argument('--resume_epoch', default=-1, type=int, help='Resume epoch, -1 for latest numeric checkpoint')
     parser.add_argument('--warmup', default='gg3b0', type=str, help='Warmup checkpoint directory')
   elif script == 'test':
+    parser.add_argument('--eval_seed', default=None, type=int, help='Optional fixed episode seed for reproducible ablations')
     parser.add_argument('--split', default='novel', help='base/val/novel')
     parser.add_argument('--save_epoch', default=-1, type=int, help='Checkpoint epoch to load, -1 for best model')
     parser.add_argument('--warmup', default='gg3bo', type=str, help='Legacy warmup arg for test compatibility')
