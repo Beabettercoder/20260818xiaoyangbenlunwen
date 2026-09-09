@@ -1,6 +1,12 @@
 # Nine source-only transfers
 
-Entry point: `scripts/run_ablation_nine.py`. GPU defaults to **5**, sequential.
+Entry point: `scripts/run_ablation_nine.py`. GPU defaults to **6**, sequential.
+
+Before filling the source configuration, run `python scripts/inventory_ablation_inputs.py`
+on the server. It records available split sizes and candidate checkpoints under
+`/mnt/sdc/wzj` in a timestamped `logs/ablation_inputs_*.json`. It does not train,
+change splits, or assume checkpoint provenance. Missing source-specific inputs
+remain blockers, not automatically substituted NWPU weights.
 Sources NWPU/AID/UCM each test the other three datasets (including EuroSAT).
 Only A/B/C/D are scheduled; E is already available and is not rerun or merged.
 Both shots: 18 training jobs, 72 evaluations. No target data enters training.
@@ -39,8 +45,8 @@ git pull --ff-only origin fix/source-only-ablation
 export PATH=/mnt/sdc/wzj/envs/sganet/bin:$PATH
 python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --check-only
 # After all checks pass: short end-to-end test first, then full jobs.
-python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --gpu 5 --smoke
-python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --gpu 5
+python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --gpu 6 --smoke
+python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --gpu 6
 ```
 
 `--dry-run` prints commands without training or requiring data files.

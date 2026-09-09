@@ -90,7 +90,7 @@ def preflight(config, sources):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--config', type=Path, required=True)
-    p.add_argument('--gpu', type=int, default=5)
+    p.add_argument('--gpu', type=int, default=6)
     p.add_argument('--sources', nargs='+', choices=SOURCES, default=list(SOURCES))
     p.add_argument('--shots', nargs='+', type=int, choices=[1, 5], default=[5, 1])
     p.add_argument('--arms', nargs='+', choices=list('ABCD'), default=list('ABCD'))
