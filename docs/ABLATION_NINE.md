@@ -20,7 +20,12 @@ The schedule explicitly pins ResNet10, baseline method, 5-way, 200 epochs,
 queries/class, and attack candidates 0.8/0.08/0.008. Test episodes are 1000.
 Only independent/progressive attack and text-scale switches differ across B-D.
 Target SSL, semantic anchor/drift and text-gradient gating remain disabled.
-GPU6 is used sequentially. E is rejected, not restored.
+GPU6 is used sequentially. The loader-only speed settings are fixed at
+`train_workers=4`, `eval_workers=4`, `feature_batch_size=64`, and
+`prefetch_factor=2`. These change input pipeline throughput only; the actual
+training episode remains 5-way with the same support/query counts. They are
+recorded in the run manifest and can be overridden if server CPU/RAM requires
+it. E is rejected, not restored.
 
 The audited `nwpu_5shot_baseline_restore` checkpoint only records dataset,
 model, method, ways, shot and name. It has no text parameter keys and does not

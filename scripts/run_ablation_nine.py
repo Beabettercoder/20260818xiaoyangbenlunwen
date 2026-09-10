@@ -171,6 +171,10 @@ def main():
             raise FileExistsError(plan['name'])
     log_root.mkdir(parents=True, exist_ok=False)
     manifest = dict(config=config, inputs=records, runs=plans, gpu=args.gpu, seed=0,
+                    loader=dict(train_workers=args.train_workers,
+                                eval_workers=args.eval_workers,
+                                feature_batch_size=args.feature_batch_size,
+                                prefetch_factor=args.prefetch_factor),
                     commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT).decode().strip(),
                     status=subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT).decode(),
                     reference=dict(name='nwpu_5shot_baseline_restore',
