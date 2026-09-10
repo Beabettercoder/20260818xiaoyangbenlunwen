@@ -11,6 +11,26 @@ Sources NWPU/AID/UCM each test the other three datasets (including EuroSAT).
 Only A/B/C/D are scheduled; E is already available and is not rerun or merged.
 Both shots: 18 training jobs, 72 evaluations. No target data enters training.
 
+## Locked A-D setup (2026-09-10)
+
+A evaluates the existing source warmup directly: zero additional epochs.
+B/C/D each start from the SAME source warmup (not from the previous arm).
+The schedule explicitly pins ResNet10, baseline method, 5-way, 200 epochs,
+100 train/validation episodes, 5 training queries/class, 15 evaluation
+queries/class, and attack candidates 0.8/0.08/0.008. Test episodes are 1000.
+Only independent/progressive attack and text-scale switches differ across B-D.
+Target SSL, semantic anchor/drift and text-gradient gating remain disabled.
+GPU6 is used sequentially. E is rejected, not restored.
+
+The audited `nwpu_5shot_baseline_restore` checkpoint only records dataset,
+model, method, ways, shot and name. It has no text parameter keys and does not
+record the complete training configuration. Consequently exact equivalence
+to every hyperparameter of that historic run is NOT verified. The manifest
+records this limitation and the audited reference hash; it is not a runtime
+verification of a locally available reference checkpoint. Current Adam defaults
+and existing loss implementation remain unchanged. A is a warmup reference,
+not a budget/head-matched module ablation against B-D.
+
 A directly evaluates the source-pretrained ResNet10 with cosine prototypes;
 it is NOT random initialization and receives no further training. B independent
 attack; C progressive attack; D independent + text scales; E progressive + text

@@ -15,6 +15,12 @@ from run_source_only_ablation import ROOT, commands, run, sha
 
 SOURCES = ('NWPU', 'AID', 'UCM')
 DOMAINS = (*SOURCES, 'EuroSAT')
+ARM_MODULES = {
+    'A': dict(style_attack=False, progressive=False, text_scales=False, extra_epochs=0),
+    'B': dict(style_attack=True, progressive=False, text_scales=False, extra_epochs=200),
+    'C': dict(style_attack=True, progressive=True, text_scales=False, extra_epochs=200),
+    'D': dict(style_attack=True, progressive=False, text_scales=True, extra_epochs=200),
+}
 
 
 def replace(command, key, value):
@@ -27,10 +33,17 @@ def plans_for(config, args):
         entry = config[source]
         for shot in args.shots:
             for arm in args.arms:
+                if arm not in ARM_MODULES:
+                    raise ValueError('Only A-D are supported; E must not be scheduled')
                 name = f'ablation_nine_{source}_{arm}_{shot}shot_{args.tag}'
                 train, test = commands(SimpleNamespace(data_dir=Path(entry['data_dir']), smoke=args.smoke), arm, shot, name)
                 for command in (train, test):
                     replace(command, '--source_dataset', source)
+                    command.extend(['--model', 'ResNet10', '--method', 'baseline',
+                                    '--train_n_way', '5', '--test_n_way', '5'])
+                train.extend(['--start_epoch', '0', '--epsilon_block1', '0.8',
+                              '--epsilon_block2', '0.08', '--epsilon_block3', '0.008',
+                              '--use_style_prompt', '0', '--clip_model_name', 'ViT-B/32'])
                 replace(train, '--warmup', f'ablation_init_{source}_{args.tag}')
                 targets = [x for x in DOMAINS if x != source]
                 replace(test, '--target_datasets', ','.join(targets))
@@ -43,6 +56,8 @@ def plans_for(config, args):
                             str(ROOT / 'output/checkpoints' / name / 'acc_bscdfsl.txt')]
                 plans.append(dict(source=source, shot=shot, arm=arm, name=name,
                                   targets=targets, train=train, test=test,
+                                  modules={**ARM_MODULES[arm], 'extra_epochs':
+                                           0 if arm == 'A' else (1 if args.smoke else 200)},
                                   head='cosine-prototype' if arm == 'A' else 'GNN'))
     return plans
 
@@ -124,7 +139,11 @@ def main():
     manifest = dict(config=config, inputs=records, runs=plans, gpu=args.gpu, seed=0,
                     commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT).decode().strip(),
                     status=subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT).decode(),
-                    caveat='A uses frozen cosine prototypes; B-E use trained GNN. A-B is not an isolated attack ablation.')
+                    reference=dict(name='nwpu_5shot_baseline_restore',
+                                   checkpoint_sha256='a7de4a088c787839e3343cf79fb57c36fc6d1eae74fb5675878ceabbcdff6eea',
+                                   exact_parameter_match_verified=False,
+                                   reason='Reference params_meta contains only dataset/model/method/ways/shot/name; no complete training configuration.'),
+                    caveat='A uses frozen cosine prototypes; B-D use trained GNN. A-B is not an isolated attack ablation.')
     def save():
         (log_root / 'manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     save()
