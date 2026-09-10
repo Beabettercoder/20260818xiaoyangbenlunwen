@@ -22,6 +22,13 @@ ARM_MODULES = {
     'D': dict(style_attack=True, progressive=False, text_scales=True, extra_epochs=200),
 }
 
+# Loader-only speed settings. These do not change the episode protocol or the
+# model/loss switches, so they remain fair across A-D and all source domains.
+DEFAULT_TRAIN_WORKERS = 4
+DEFAULT_EVAL_WORKERS = 4
+DEFAULT_FEATURE_BATCH_SIZE = 64
+DEFAULT_PREFETCH_FACTOR = 2
+
 
 def replace(command, key, value):
     command[command.index(key) + 1] = str(value)
@@ -29,6 +36,10 @@ def replace(command, key, value):
 
 def plans_for(config, args):
     plans = []
+    train_workers = int(getattr(args, 'train_workers', DEFAULT_TRAIN_WORKERS))
+    eval_workers = int(getattr(args, 'eval_workers', DEFAULT_EVAL_WORKERS))
+    feature_batch_size = int(getattr(args, 'feature_batch_size', DEFAULT_FEATURE_BATCH_SIZE))
+    prefetch_factor = int(getattr(args, 'prefetch_factor', DEFAULT_PREFETCH_FACTOR))
     for source in args.sources:
         entry = config[source]
         for shot in args.shots:
@@ -39,8 +50,12 @@ def plans_for(config, args):
                 train, test = commands(SimpleNamespace(data_dir=Path(entry['data_dir']), smoke=args.smoke), arm, shot, name)
                 for command in (train, test):
                     replace(command, '--source_dataset', source)
+                    replace(command, '--eval_num_workers', eval_workers)
+                    replace(command, '--feature_batch_size', feature_batch_size)
+                    command.extend(['--prefetch_factor', str(prefetch_factor)])
                     command.extend(['--model', 'ResNet10', '--method', 'baseline',
                                     '--train_n_way', '5', '--test_n_way', '5'])
+                replace(train, '--train_num_workers', train_workers)
                 train.extend(['--start_epoch', '0', '--epsilon_block1', '0.8',
                               '--epsilon_block2', '0.08', '--epsilon_block3', '0.008',
                               '--use_style_prompt', '0', '--clip_model_name', 'ViT-B/32'])
@@ -53,7 +68,10 @@ def plans_for(config, args):
                             '--data-dir', entry['data_dir'], '--checkpoint', entry['checkpoint'],
                             '--targets', *targets, '--shot', str(shot), '--episodes',
                             '2' if args.smoke else '1000', '--output',
-                            str(ROOT / 'output/checkpoints' / name / 'acc_bscdfsl.txt')]
+                            str(ROOT / 'output/checkpoints' / name / 'acc_bscdfsl.txt'),
+                            '--batch-size', str(feature_batch_size),
+                            '--workers', str(eval_workers),
+                            '--prefetch-factor', str(prefetch_factor)]
                 plans.append(dict(source=source, shot=shot, arm=arm, name=name,
                                   targets=targets, train=train, test=test,
                                   modules={**ARM_MODULES[arm], 'extra_epochs':
@@ -110,6 +128,18 @@ def main():
     p.add_argument('--shots', nargs='+', type=int, choices=[1, 5], default=[5, 1])
     p.add_argument('--arms', nargs='+', choices=list('ABCD'), default=list('ABCD'))
     p.add_argument('--tag', default=datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+    p.add_argument('--train-workers', dest='train_workers', type=int,
+                   default=DEFAULT_TRAIN_WORKERS,
+                   help='DataLoader workers for B-D training (loader-only setting)')
+    p.add_argument('--eval-workers', dest='eval_workers', type=int,
+                   default=DEFAULT_EVAL_WORKERS,
+                   help='DataLoader workers for evaluation (loader-only setting)')
+    p.add_argument('--feature-batch-size', dest='feature_batch_size', type=int,
+                   default=DEFAULT_FEATURE_BATCH_SIZE,
+                   help='Feature-extraction batch size for evaluation')
+    p.add_argument('--prefetch-factor', dest='prefetch_factor', type=int,
+                   default=DEFAULT_PREFETCH_FACTOR,
+                   help='DataLoader prefetch factor when workers are enabled')
     p.add_argument('--smoke', action='store_true')
     p.add_argument('--dry-run', action='store_true')
     p.add_argument('--check-only', action='store_true')
@@ -119,6 +149,10 @@ def main():
     for values in (args.sources, args.shots, args.arms):
         if len(set(values)) != len(values):
             p.error('duplicate selections')
+    if args.train_workers < 0 or args.eval_workers < 0:
+        p.error('worker counts must be >= 0')
+    if args.feature_batch_size < 1 or args.prefetch_factor < 1:
+        p.error('feature batch size and prefetch factor must be >= 1')
     args.tag = ('smoke_' if args.smoke else 'formal_') + args.tag
     config = json.loads(args.config.read_text(encoding='utf-8-sig'))
     plans = plans_for(config, args)

@@ -34,16 +34,31 @@ def main():
     p.add_argument('--shot', type=int, choices=[1, 5], required=True)
     p.add_argument('--episodes', type=int, default=1000)
     p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--batch-size', type=int, default=64,
+                   help='Feature-extraction batch size')
+    p.add_argument('--workers', type=int, default=4,
+                   help='DataLoader workers')
+    p.add_argument('--prefetch-factor', type=int, default=2,
+                   help='DataLoader prefetch factor when workers are enabled')
     args = p.parse_args()
+    if args.batch_size < 1 or args.workers < 0 or args.prefetch_factor < 1:
+        p.error('batch-size and prefetch-factor must be >= 1; workers must be >= 0')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = load_encoder(args.checkpoint, device)
     args.output.parent.mkdir(parents=True, exist_ok=False)
     with args.output.open('x', encoding='utf-8') as result:
         for target in args.targets:
+            loader_kwargs = dict(
+                batch_size=args.batch_size, data_root=args.data_dir, split='novel',
+                num_workers=args.workers, pin_memory=torch.cuda.is_available(),
+            )
+            if args.workers > 0:
+                loader_kwargs.update(persistent_workers=True,
+                                     prefetch_factor=args.prefetch_factor)
+            else:
+                loader_kwargs['persistent_workers'] = False
             loader = get_few_shot_datamgr(target, episodic=False, image_size=224,
-                batch_size=32, data_root=args.data_dir, split='novel', num_workers=2,
-                pin_memory=torch.cuda.is_available(), persistent_workers=True,
-                prefetch_factor=2).get_data_loader(aug=False)
+                **loader_kwargs).get_data_loader(aug=False)
             features = {}
             with torch.inference_mode():
                 for x, y in loader:
