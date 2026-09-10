@@ -14,7 +14,7 @@ Both shots: 18 training jobs, 72 evaluations. No target data enters training.
 ## Locked A-D setup (2026-09-10)
 
 A evaluates the existing source warmup directly: zero additional epochs.
-B/C/D each start from the SAME source warmup (not from the previous arm).
+B/C/D each start from the SAME warmup checkpoint (not from the previous arm).
 The schedule explicitly pins ResNet10, baseline method, 5-way, 200 epochs,
 100 train/validation episodes, 5 training queries/class, 15 evaluation
 queries/class, and attack candidates 0.8/0.08/0.008. Test episodes are 1000.
@@ -45,33 +45,66 @@ Use B/C/D/E for component comparisons. No best-score ordering is guaranteed.
 Existing GNN balanced-query grouping is unchanged; this script does not resolve
 that evaluation-protocol limitation. Do not describe it as label-independent grouping.
 
-Create a JSON config with three entries, each using **verified real paths**:
+The requested protocol intentionally reuses the single verified
+`baseline/399.tar` for all three source names.  First build complete source
+roots from the real image lists.  The builder keeps NWPU's existing base/val,
+splits AID/UCM class-wise with the same validation proportion (while enforcing
+the benchmark minimum), makes source `novel.json` empty, and puts all real
+non-source images in target `novel.json`:
+
+```bash
+python scripts/build_ablation_source_splits.py \
+  --input-root /mnt/sdc/wzj/datasets \
+  --output-root /mnt/sdc/wzj/datasets_causal_splits/ablation_source_splits \
+  --reference-source NWPU --sources NWPU AID UCM --seed 0 \
+  --verify-images
+```
+
+Use a new output-root if that directory already exists.  The generated
+`split_manifest.json` records the exact counts and policy.  Create a JSON
+config automatically so that no placeholder path can be copied into the run:
+
+```bash
+python scripts/make_ablation_shared_config.py \
+  --split-root /mnt/sdc/wzj/datasets_causal_splits/ablation_source_splits \
+  --checkpoint /mnt/sdc/wzj/SGA-Net-ablation-v2/output/checkpoints/baseline/399.tar \
+  --output /mnt/sdc/wzj/SGA-Net-ablation-v2/logs/ablation_sources_shared.json
+```
+
+The generated JSON has three entries, each using **verified real paths**:
 
 ```json
 {
-  "NWPU": {"data_dir": "/path/to/NWPU_source_splits", "checkpoint": "/path/to/NWPU/399.tar", "pretrained_source": "NWPU"},
-  "AID": {"data_dir": "/path/to/AID_source_splits", "checkpoint": "/path/to/AID/399.tar", "pretrained_source": "AID"},
-  "UCM": {"data_dir": "/path/to/UCM_source_splits", "checkpoint": "/path/to/UCM/399.tar", "pretrained_source": "UCM"}
+  "NWPU": {"data_dir": "/mnt/sdc/wzj/datasets_causal_splits/ablation_source_splits/NWPU_source", "checkpoint": "/mnt/sdc/wzj/SGA-Net-ablation-v2/output/checkpoints/baseline/399.tar", "pretrained_source": "shared"},
+  "AID": {"data_dir": "/mnt/sdc/wzj/datasets_causal_splits/ablation_source_splits/AID_source", "checkpoint": "/mnt/sdc/wzj/SGA-Net-ablation-v2/output/checkpoints/baseline/399.tar", "pretrained_source": "shared"},
+  "UCM": {"data_dir": "/mnt/sdc/wzj/datasets_causal_splits/ablation_source_splits/UCM_source", "checkpoint": "/mnt/sdc/wzj/SGA-Net-ablation-v2/output/checkpoints/baseline/399.tar", "pretrained_source": "shared"}
 }
 ```
 
 These are placeholders, NOT existing server paths. Each data_dir contains the
 source base/val JSON and three target novel JSON. Source val and target novel
 require at least 20 images/class (5 support +15 query), at least five classes.
-The runner rejects empty splits, missing images, path overlap and reused weights.
+The runner rejects empty splits, missing images and path overlap.  Reusing the
+same warmup is rejected by default; because this experiment intentionally uses
+one common warmup, every run must explicitly pass
+`--allow-shared-checkpoint`, and the manifest records that exception.
 It cannot infer pretraining provenance or detect duplicate image content from
 different paths; manually verify provenance and data splits. Only trusted torch
 checkpoints may be used. The original server splits with empty AID/UCM base/val
 and empty NWPU novel are NOT sufficient for nine directions.
 
+`--verify-images` is intentional: it stops before writing a formal split if a
+file is truncated or unreadable.  Repair any reported file first; do not silently
+drop it or duplicate another image.
+
 ```bash
 cd /mnt/sdc/wzj/SGA-Net-ablation-v2
 git pull --ff-only origin fix/source-only-ablation
 export PATH=/mnt/sdc/wzj/envs/sganet/bin:$PATH
-python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --check-only
+python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --allow-shared-checkpoint --check-only
 # After all checks pass: short end-to-end test first, then full jobs.
-python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --gpu 6 --smoke
-python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --gpu 6
+python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --allow-shared-checkpoint --gpu 6 --smoke
+python scripts/run_ablation_nine.py --config /path/to/ablation_sources.json --allow-shared-checkpoint --gpu 6
 ```
 
 `--dry-run` prints commands without training or requiring data files.

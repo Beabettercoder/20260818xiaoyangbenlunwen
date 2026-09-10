@@ -80,13 +80,22 @@ def plans_for(config, args):
     return plans
 
 
-def preflight(config, sources):
+def preflight(config, sources, allow_shared_checkpoint=False):
     records = {}
     for source in sources:
         entry = config[source]
-        if entry.get('pretrained_source') != source:
-            raise ValueError(f'{source}: explicitly confirm pretrained_source; never reuse another source checkpoint')
+        provenance = entry.get('pretrained_source')
+        if provenance != source:
+            if not (allow_shared_checkpoint and provenance == 'shared'):
+                raise ValueError(
+                    f'{source}: pretrained_source must be {source!r}; '
+                    "use pretrained_source='shared' together with "
+                    '--allow-shared-checkpoint only for the explicitly shared warmup protocol')
         checkpoint = Path(entry['checkpoint'])
+        if checkpoint.name != '399.tar':
+            raise ValueError(
+                f'{source}: checkpoint must be the common warmup file named 399.tar; '
+                f'got {checkpoint}')
         if not checkpoint.is_file():
             raise FileNotFoundError(checkpoint)
         record = {'checkpoint': str(checkpoint), 'sha256': sha(checkpoint), 'splits': {}}
@@ -114,9 +123,32 @@ def preflight(config, sources):
         for domain in DOMAINS:
             if domain != source and source_images & paths[(domain, 'novel')]:
                 raise ValueError(f'{source}->{domain}: image leakage')
+        record['pretrained_source'] = provenance
         records[source] = record
-    if len({r['sha256'] for r in records.values()}) != len(records):
-        raise ValueError('Different sources have identical pretrained checkpoint contents')
+    by_hash = {}
+    for source, record in records.items():
+        by_hash.setdefault(record['sha256'], []).append(source)
+    duplicate_groups = [owners for owners in by_hash.values() if len(owners) > 1]
+    if duplicate_groups and not allow_shared_checkpoint:
+        raise ValueError(
+            'Different sources have identical pretrained checkpoint contents; '
+            'pass --allow-shared-checkpoint only when this is intentional')
+    for owners in duplicate_groups:
+        if any(config[source].get('pretrained_source') != 'shared' for source in owners):
+            raise ValueError(
+                f'identical checkpoint group {owners} must be marked '
+                "pretrained_source='shared'")
+    shared_sources = [source for source in sources
+                      if config[source].get('pretrained_source') == 'shared']
+    if shared_sources and not allow_shared_checkpoint:
+        raise ValueError(
+            "pretrained_source='shared' requires --allow-shared-checkpoint")
+    if shared_sources and len({records[source]['sha256'] for source in shared_sources}) != 1:
+        raise ValueError('all sources marked shared must use the same checkpoint contents')
+    if shared_sources and set(shared_sources) != set(sources):
+        raise ValueError(
+            'the locked protocol requires every selected source to use the shared '
+            "baseline/399.tar; do not mix shared and source-specific warmups")
     return records
 
 
@@ -140,6 +172,8 @@ def main():
     p.add_argument('--prefetch-factor', dest='prefetch_factor', type=int,
                    default=DEFAULT_PREFETCH_FACTOR,
                    help='DataLoader prefetch factor when workers are enabled')
+    p.add_argument('--allow-shared-checkpoint', action='store_true',
+                   help='Explicitly allow all source domains to reuse one warmup checkpoint')
     p.add_argument('--smoke', action='store_true')
     p.add_argument('--dry-run', action='store_true')
     p.add_argument('--check-only', action='store_true')
@@ -158,7 +192,7 @@ def main():
     plans = plans_for(config, args)
     if args.dry_run:
         print(json.dumps(plans, indent=2)); return
-    records = preflight(config, args.sources)
+    records = preflight(config, args.sources, args.allow_shared_checkpoint)
     if args.check_only:
         print(json.dumps(records, indent=2)); print('[PASS] data/path preflight (checkpoint tensors not checked)'); return
     # Validate source backbone coverage before any expensive training.
@@ -171,6 +205,12 @@ def main():
             raise FileExistsError(plan['name'])
     log_root.mkdir(parents=True, exist_ok=False)
     manifest = dict(config=config, inputs=records, runs=plans, gpu=args.gpu, seed=0,
+                    checkpoint_policy=dict(
+                        allow_shared_checkpoint=args.allow_shared_checkpoint,
+                        description=('All sources intentionally reuse the same '
+                                     'baseline/399.tar warmup checkpoint.')
+                        if args.allow_shared_checkpoint else
+                        'Source-specific warmup checkpoints are required.'),
                     loader=dict(train_workers=args.train_workers,
                                 eval_workers=args.eval_workers,
                                 feature_batch_size=args.feature_batch_size,
